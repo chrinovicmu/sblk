@@ -1,6 +1,7 @@
 #include <linux/types.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+#include <linux/types.h>
 #include <linux/uaccess.h>
 #include <linux/fs.h>
 #include <linux/cred.h>
@@ -11,34 +12,84 @@
 #include <linux/spinlock.h> 
 #include <include/utils.h>
 #include <include/sblk_dev.h> 
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
 
-static int my_blk_open(struct block_device *bdev, fmode_t mode)
+static int sblk_blkdev_open(struct block_device *bdev, fmode_t mode)
 {
     return 0; 
 }
 
-static int my_blk_release(struct gendisk *gd, fmode_t mode)
+static int sblk_blkdev_release(struct gendisk *gd, fmode_t mode)
 {
 
 
     return 0; 
 }
 
-struct block_device_operations my_blk_ops = {
+struct block_device_operations sblk_blkdev_ops = {
     .owner = THIS_MODULE, 
-    .open = my_blk_open, 
-    .release = my_blk_release 
+    .open = sblk_blkdev_open, 
+    .release = sblk_blkdev_release 
 }; 
 
 
+/*callback for a single request */ 
 
-
-static blk_status_t sblk_request(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data * bd)
+static blk_status_t sblk_request(struct blk_mq_hw_ctx *hctx,
+                                 const struct blk_mq_queue_data * bd)
 {
     struct request *rq = bd->rq; 
-    struct sblk_dev *dev = q->
+
+    /*get hardware queue */ 
+    struct request_queue *q = hctx->queue; 
+    struct sblk_dev *dev = q->queuedata; 
+
+    sector_t start_sector; 
+    unsigned int num_bytes; 
+    u8 *buffer; 
+
+    /*mark request as active
+     * set internal flags 
+     * update queue statistics (queue->nr_requests, queue->in_flight
+     * ensure request is properly visiable to other threads/CPU in multi-queue context.*/ 
+    blk_mq_start_request(rq); 
+
+    /*skip passthrought requests */
+
+    if(blk_rq_is_passththrought(rq))
+    {
+        pr_info("Skip non-fs request\n");
+        blk_mq_end_request(rq, BLK_STS_IOERR); 
+        return BLK_STS_OK; 
+    }
+
+    /*map request to RAM disk buffer */ 
+    /*return first logical block address in the request */  
+    start_sector = blk_rq_pos(rq); 
+
+    /*size of current segement in request being processed */ 
+    num_bytes = blk_rq_cur_bytes(rq); 
+
+    /*ptr to first segement */ 
+    buffer = bio_data(rq->bio);
+
+    if(rq_data_dir(rq) == READ)
+    {
+        memcpy(buffer, dev->data + start_sector * 512, num_bytes); 
+    }else
+    {
+        memcpy(dev->data + start_sector * 512, buffer, num_bytes); 
+    }
+
+    blk_mq_end_request(rq, BLK_STS_OK); 
+    
+    return BLK_STS_OK; 
 
 }
+
+
+/*operations for block IO multi-queue layer */ 
 static struct blk_mq_ops sblk_queue_ops = {
     .queue_rq = sblk_request, 
 }; 

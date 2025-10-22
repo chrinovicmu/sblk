@@ -19,7 +19,9 @@ struct sblk_dev {
     int sec_size; 
     struct gendisk *gd;
     struct request_queue *queue;
-    struct blk_mq_tag_set tag_set;  
+    struct blk_mq_tag_set tag_set; 
+
+    u8 data;
     spinlock_t lock;
 };
 
